@@ -45,7 +45,7 @@ class _RegistroPageState extends State<RegistroPage> {
                 labelStyle: TextStyle(color: Colors.grey[400]),
                 prefixIcon: Icon(
                   Icons.person_2_outlined,
-                  color: Colors.grey[400],
+                  color: const Color(0xFFCCFF00),
                 ),
               ),
             ),
@@ -61,7 +61,7 @@ class _RegistroPageState extends State<RegistroPage> {
                 ),
                 labelText: "E-mail",
                 labelStyle: TextStyle(color: Colors.grey[400]),
-                prefixIcon: Icon(Icons.email_outlined, color: Colors.grey[400]),
+                prefixIcon: Icon(Icons.email_outlined, color: const Color(0xFFCCFF00)),
               ),
             ),
             TextField(
@@ -88,7 +88,7 @@ class _RegistroPageState extends State<RegistroPage> {
                     _obscureText
                         ? Icons.visibility_off_outlined
                         : Icons.visibility_outlined,
-                    color: Colors.grey[400],
+                    color: const Color(0xFFCCFF00),
                   ),
                 ),
               ),
