@@ -64,13 +64,20 @@ class _InicioPageState extends State<InicioPage> {
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                  IconButton(
-                    icon: Icon(Icons.logout, color: Colors.white),
+                  TextButton.icon(
                     onPressed: () async {
                       await FirebaseAuth.instance.signOut();
                       if (context.mounted)
                         Navigator.pushReplacementNamed(context, '/login');
                     },
+                    icon: const Icon(Icons.logout, color: Colors.grey, size: 18),
+                    label: const Text(
+                      'Sair',
+                      style: TextStyle(color: Colors.grey, fontSize: 13),
+                    ),
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    ),
                   ),
                 ],
               ),
@@ -131,28 +138,57 @@ class _InicioPageState extends State<InicioPage> {
               ),
 
               SizedBox(height: 28),
-
-              Text(
-                'Meus Treinos',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  const Text(
+                    'Meus Treinos',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  GestureDetector(
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const TreinamentoPage()),
+                    ),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Color(0xFF1A1A1A),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Color(0xFF333333)),
+                      ),
+                      child: const Row(
+                        children: [
+                          Icon(Icons.add, color: Color(0xFFCCFF00), size: 16),
+                          SizedBox(width: 5),
+                          Text(
+                            'Novo treino',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
               ),
 
               SizedBox(height: 12),
-
-              // lista de treinos + botão novo treino
               Expanded(
                 child: StreamBuilder<QuerySnapshot>(
                   stream: _treinosRef.orderBy('criadoEm', descending: true).snapshots(),
                   builder: (context, snap) {
                     final docs = snap.data?.docs ?? [];
-
                     return ListView(
                       children: [
-                        // treinos salvos — clicáveis para abrir e editar
                         ...docs.map((doc) {
                           final data = doc.data() as Map<String, dynamic>;
                           final nomeTreino = data['nome'] ?? 'Treino';
@@ -211,37 +247,6 @@ class _InicioPageState extends State<InicioPage> {
                             ),
                           );
                         }),
-
-                        // botão novo treino vazio
-                        OutlinedButton(
-                          onPressed: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(builder: (_) => const TreinamentoPage()),
-                          ),
-                          style: OutlinedButton.styleFrom(
-                            side: BorderSide(color: Color(0xFF333333)),
-                            backgroundColor: Color(0xFF1A1A1A),
-                            minimumSize: Size(double.infinity, 52),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(14),
-                            ),
-                          ),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.add, color: Colors.white, size: 20),
-                              SizedBox(width: 8),
-                              Text(
-                                'Iniciar Treinamento Vazio',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 15,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
                       ],
                     );
                   },

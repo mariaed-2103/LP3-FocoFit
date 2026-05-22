@@ -183,7 +183,7 @@ class _TreinamentoPageState extends State<TreinamentoPage> {
     );
   }
 
-  // ── Sincronizar exercícios no Firestore (sem validação geral) ─────────────
+  // ── Sincronizar exercícios no Firestore ───────────────────────────────────
 
   Future<void> _sincronizarFirestore({bool silencioso = false}) async {
     if (_docId == null) return;
@@ -336,17 +336,17 @@ class _TreinamentoPageState extends State<TreinamentoPage> {
   // ── Feedback ──────────────────────────────────────────────────────────────
 
   void _aviso(String msg) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-    content: Text(msg),
-    backgroundColor: Colors.red,
+    content: Text(msg, style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+    backgroundColor:  accent,
     behavior: SnackBarBehavior.floating,
-    duration: const Duration(seconds: 2),
+    duration: const Duration(seconds: 1),
   ));
 
   void _sucesso(String msg) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(
     content: Text(msg, style: const TextStyle(color: Colors.black)),
     backgroundColor: accent,
     behavior: SnackBarBehavior.floating,
-    duration: const Duration(seconds: 2),
+    duration: const Duration(seconds: 1),
   ));
 
   // ── Build ─────────────────────────────────────────────────────────────────
@@ -383,38 +383,70 @@ class _TreinamentoPageState extends State<TreinamentoPage> {
           ),
         ),
         actions: [
-          if (_docId != null)
-            IconButton(
-              icon: const Icon(Icons.delete_outline, color: Colors.red),
-              onPressed: _carregando ? null : _deletarTreino,
+          Container(
+            margin: const EdgeInsets.only(right: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+            decoration: BoxDecoration(
+              color: Color(0xFF1A1A1A),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: Color(0xFF2A2A2A)),
             ),
-          if (_exercicios.length > 1)
-            IconButton(
-              icon: Icon(Icons.swap_vert,
-                color: _modoReordenar ? accent : Colors.white),
-              onPressed: () => setState(() {
-                _modoReordenar = !_modoReordenar;
-                if (_modoReordenar) _modoEdicao = false;
-              }),
-            ),
-          TextButton(
-            onPressed: () {
-              // bloqueia edição se não há exercícios
-              if (_exercicios.isEmpty) {
-                _aviso('Adicione ao menos um exercício para editar.');
-                return;
-              }
-              setState(() {
-                _modoEdicao = !_modoEdicao;
-                if (_modoEdicao) _modoReordenar = false;
-              });
-            },
-            child: Text(
-              _modoEdicao ? 'Concluir edição' : 'Editar',
-              style: TextStyle(
-                color: _modoEdicao ? accent : Colors.white,
-                fontWeight: FontWeight.bold,
-              ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (_docId != null) ...[
+                  IconButton(
+                    icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
+                    onPressed: _carregando ? null : _deletarTreino,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                    tooltip: 'Excluir treino',
+                  ),
+                  Container(width: 1, height: 20, color: Color(0xFF2A2A2A)),
+                ],
+                if (_exercicios.length > 1) ...[
+                  IconButton(
+                    icon: Icon(
+                      Icons.swap_vert,
+                      color: _modoReordenar ? accent : Colors.white,
+                      size: 20,
+                    ),
+                    onPressed: () => setState(() {
+                      _modoReordenar = !_modoReordenar;
+                      if (_modoReordenar) _modoEdicao = false;
+                    }),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                    tooltip: 'Reordenar exercícios',
+                  ),
+                  Container(width: 1, height: 20, color: Color(0xFF2A2A2A)),
+                ],
+                TextButton(
+                  onPressed: () {
+                    if (_exercicios.isEmpty) {
+                      _aviso('Adicione ao menos um exercício para editar.');
+                      return;
+                    }
+                    setState(() {
+                      _modoEdicao = !_modoEdicao;
+                      if (_modoEdicao) _modoReordenar = false;
+                    });
+                  },
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  child: Text(
+                    _modoEdicao ? 'Concluir' : 'Editar',
+                    style: TextStyle(
+                      color: _modoEdicao ? accent : Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -432,62 +464,84 @@ class _TreinamentoPageState extends State<TreinamentoPage> {
                           : _cardVisualizacao(e.key, e.value)),
 
                       const SizedBox(height: 8),
-
                       OutlinedButton(
                         onPressed: _adicionarExercicio,
                         style: OutlinedButton.styleFrom(
-                          side: const BorderSide(color: Color(0xFF333333)),
-                          backgroundColor: bgCard,
-                          minimumSize: const Size(double.infinity, 52),
+                          side: const BorderSide(
+                            color: Color(0xFF444444),
+                            style: BorderStyle.solid,
+                            width: 1.5,
+                          ),
+                          backgroundColor: Colors.transparent,
+                          minimumSize: const Size(double.infinity, 50),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(14)),
                         ),
                         child: const Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(Icons.add, color: Colors.white, size: 20),
+                            Icon(Icons.add_circle_outline, color: Colors.grey, size: 18),
                             SizedBox(width: 8),
-                            Text('Adicionar Exercício',
-                              style: TextStyle(color: Colors.white,
-                                fontWeight: FontWeight.w600, fontSize: 15)),
+                            Text('Adicionar exercício',
+                              style: TextStyle(
+                                color: Colors.grey,
+                                fontWeight: FontWeight.w500,
+                                fontSize: 14,
+                              )),
                           ],
                         ),
                       ),
 
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Expanded(
+                            flex: 2,
+                            child: OutlinedButton(
+                              onPressed: _carregando ? null : () => _salvar(),
+                              style: OutlinedButton.styleFrom(
+                                side: const BorderSide(color: Color(0xFF333333)),
+                                backgroundColor: bgCard,
+                                minimumSize: const Size(0, 52),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(14)),
+                              ),
+                              child: const Text('Salvar',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 14,
+                                )),
+                            ),
+                          ),
 
-                      OutlinedButton(
-                        onPressed: _carregando ? null : () => _salvar(),
-                        style: OutlinedButton.styleFrom(
-                          side: const BorderSide(color: Color(0xFF333333)),
-                          backgroundColor: bgCard,
-                          minimumSize: const Size(double.infinity, 52),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14)),
-                        ),
-                        child: const Text('Salvar Treino',
-                          style: TextStyle(color: Colors.white,
-                            fontWeight: FontWeight.w600, fontSize: 15)),
-                      ),
+                          const SizedBox(width: 10),
 
-                      const SizedBox(height: 12),
-
-                      ElevatedButton.icon(
-                        onPressed: _carregando ? null : _concluir,
-                        icon: _carregando
-                            ? const SizedBox(width: 18, height: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2, color: Colors.black))
-                            : const Icon(Icons.check, color: Colors.black),
-                        label: const Text('Concluir Treino',
-                          style: TextStyle(color: Colors.black,
-                            fontWeight: FontWeight.bold, fontSize: 15)),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: accent,
-                          minimumSize: const Size(double.infinity, 52),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14)),
-                        ),
+                          Expanded(
+                            flex: 3,
+                            child: ElevatedButton.icon(
+                              onPressed: _carregando ? null : _concluir,
+                              icon: _carregando
+                                  ? const SizedBox(
+                                      width: 16, height: 16,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2, color: Colors.black))
+                                  : const Icon(Icons.check, color: Colors.black, size: 18),
+                              label: const Text('Concluir',
+                                style: TextStyle(
+                                  color: Colors.black,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14,
+                                )),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: accent,
+                                minimumSize: const Size(0, 52),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(14)),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
 
                       const SizedBox(height: 24),
@@ -499,7 +553,7 @@ class _TreinamentoPageState extends State<TreinamentoPage> {
     );
   }
 
-  // ── Lista reordenável ─────────────────────────────────────────────────────
+  // ── Lista reordenável ──────────────────────────────────────
 
   Widget _listaReordenavel() {
     return ReorderableListView.builder(
@@ -548,8 +602,6 @@ class _TreinamentoPageState extends State<TreinamentoPage> {
     );
   }
 
-  // ── Card visualização ─────────────────────────────────────────────────────
-
   Widget _cardVisualizacao(int index, Map<String, dynamic> ex) {
     final nome = (ex['nome'] as TextEditingController).text;
     final series = (ex['series'] as TextEditingController).text;
@@ -594,25 +646,51 @@ class _TreinamentoPageState extends State<TreinamentoPage> {
               ],
             ),
           ),
-          IconButton(
-            icon: const Icon(Icons.edit_outlined, color: Colors.grey, size: 20),
-            onPressed: () => _editarExercicio(index),
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(),
-          ),
-          const SizedBox(width: 8),
-          IconButton(
-            icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
-            onPressed: () => _removerExercicio(index),
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(),
+          PopupMenuButton<String>(
+            onSelected: (value) {
+              if (value == 'editar') _editarExercicio(index);
+              if (value == 'excluir') _removerExercicio(index);
+            },
+            color: const Color(0xFF2A2A2A),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            icon: Container(
+              width: 30,
+              height: 30,
+              decoration: BoxDecoration(
+                color: Color(0xFF2A2A2A),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(Icons.more_horiz, color: Colors.grey, size: 18),
+            ),
+            itemBuilder: (ctx) => [
+              const PopupMenuItem(
+                value: 'editar',
+                child: Row(
+                  children: [
+                    Icon(Icons.edit_outlined, color: Colors.white, size: 18),
+                    SizedBox(width: 10),
+                    Text('Editar', style: TextStyle(color: Colors.white, fontSize: 14)),
+                  ],
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'excluir',
+                child: Row(
+                  children: [
+                    Icon(Icons.delete_outline, color: Colors.red, size: 18),
+                    SizedBox(width: 10),
+                    Text('Excluir', style: TextStyle(color: Colors.red, fontSize: 14)),
+                  ],
+                ),
+              ),
+            ],
           ),
         ],
       ),
     );
   }
 
-  // ── Card edição geral ─────────────────────────────────────────────────────
+  // ── Card edição geral ──────────────────────────────────────
 
   Widget _cardEdicao(int index, Map<String, dynamic> ex) {
     return Container(
