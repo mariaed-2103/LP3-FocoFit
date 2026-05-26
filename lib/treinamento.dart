@@ -2,6 +2,45 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+// ── Modelo simples de exercício ───────────────────────────────────────────────
+// Substitui os Map<String, dynamic> com TextEditingController dentro,
+// tornando o código muito mais legível e sem necessidade de casts
+
+class Exercicio {
+  final TextEditingController nome;
+  final TextEditingController series;
+  final TextEditingController reps;
+  bool concluido;
+
+  Exercicio({String nome = '', String series = '3', String reps = '12'})
+      : nome = TextEditingController(text: nome),
+        series = TextEditingController(text: series),
+        reps = TextEditingController(text: reps),
+        concluido = false;
+
+  // converte para Map ao salvar no Firestore
+  Map<String, String> toMap() => {
+    'nome': nome.text.trim(),
+    'series': series.text.trim(),
+    'reps': reps.text.trim(),
+  };
+
+  // cria um Exercicio a partir de um Map vindo do Firestore
+  factory Exercicio.fromMap(Map<String, dynamic> map) => Exercicio(
+    nome: map['nome'] ?? '',
+    series: map['series'] ?? '3',
+    reps: map['reps'] ?? '12',
+  );
+
+  void dispose() {
+    nome.dispose();
+    series.dispose();
+    reps.dispose();
+  }
+}
+
+// ── Página de treinamento ─────────────────────────────────────────────────────
+
 class TreinamentoPage extends StatefulWidget {
   final String? treinoId;
   final Map<String, dynamic>? treinoExistente;
@@ -16,8 +55,8 @@ class _TreinamentoPageState extends State<TreinamentoPage> {
   static const accent = Color(0xFFCCFF00);
   static const bgCard = Color(0xFF1A1A1A);
 
-  final _nomeTreinoController = TextEditingController();
-  final List<Map<String, dynamic>> _exercicios = [];
+  final _nomeTreino = TextEditingController();
+  final List<Exercicio> _exercicios = [];
   bool _modoEdicao = false;
   bool _modoReordenar = false;
   bool _carregando = false;
@@ -28,16 +67,20 @@ class _TreinamentoPageState extends State<TreinamentoPage> {
     super.initState();
     _docId = widget.treinoId;
     if (widget.treinoExistente != null) {
-      _nomeTreinoController.text = widget.treinoExistente!['nome'] ?? '';
+      _nomeTreino.text = widget.treinoExistente!['nome'] ?? '';
       for (final ex in (widget.treinoExistente!['exercicios'] as List? ?? [])) {
-        _exercicios.add({
-          'nome': TextEditingController(text: ex['nome'] ?? ''),
-          'series': TextEditingController(text: ex['series'] ?? '3'),
-          'reps': TextEditingController(text: ex['reps'] ?? '12'),
-          'concluido': false,
-        });
+        _exercicios.add(Exercicio.fromMap(ex));
       }
+    } else {
+      _modoEdicao = true; // novo treino já abre em modo edição
     }
+  }
+
+  @override
+  void dispose() {
+    _nomeTreino.dispose();
+    for (final ex in _exercicios) ex.dispose();
+    super.dispose();
   }
 
   // ── Firestore ─────────────────────────────────────────────────────────────
@@ -50,174 +93,54 @@ class _TreinamentoPageState extends State<TreinamentoPage> {
         .collection('treinos');
   }
 
-  CollectionReference get _concluidosRef {
-    final uid = FirebaseAuth.instance.currentUser!.uid;
-    return FirebaseFirestore.instance
-        .collection('usuarios')
-        .doc(uid)
-        .collection('treinos_concluidos');
-  }
-
   // ── Exercícios ────────────────────────────────────────────────────────────
 
-  void _adicionarExercicio() => setState(() {
-    _exercicios.add({
-      'nome': TextEditingController(),
-      'series': TextEditingController(text: '3'),
-      'reps': TextEditingController(text: '12'),
-      'concluido': false,
-    });
-  });
+  void _adicionar() => setState(() => _exercicios.add(Exercicio()));
 
-  Future<void> _removerExercicio(int i) async {
+  Future<void> _remover(int i) async {
     setState(() => _exercicios.removeAt(i));
-    if (_docId != null) await _sincronizarFirestore(silencioso: true);
+    if (_docId != null) await _sincronizar();
   }
 
-  void _toggleExercicio(int i) => setState(
-    () => _exercicios[i]['concluido'] = !_exercicios[i]['concluido'],
-  );
+  void _toggle(int i) =>
+      setState(() => _exercicios[i].concluido = !_exercicios[i].concluido);
 
-  Future<void> _reordenar(int oldIndex, int newIndex) async {
-    if (newIndex > oldIndex) newIndex--;
-    setState(() {
-      final item = _exercicios.removeAt(oldIndex);
-      _exercicios.insert(newIndex, item);
-    });
-    if (_docId != null) await _sincronizarFirestore(silencioso: true);
+  Future<void> _reordenar(int de, int para) async {
+    if (para > de) para--;
+    setState(() => _exercicios.insert(para, _exercicios.removeAt(de)));
+    if (_docId != null) await _sincronizar();
   }
 
-  // ── Edição individual ─────────────────────────────────────────────────────
+  // ── Sincronizar exercícios no Firestore (sem validação geral) ─────────────
 
-  void _editarExercicio(int index) {
-    final ex = _exercicios[index];
-    final nomeCtrl = TextEditingController(
-      text: (ex['nome'] as TextEditingController).text,
-    );
-    final seriesCtrl = TextEditingController(
-      text: (ex['series'] as TextEditingController).text,
-    );
-    final repsCtrl = TextEditingController(
-      text: (ex['reps'] as TextEditingController).text,
-    );
-
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: bgCard,
-        title: const Text('Editar Exercício',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: nomeCtrl,
-              style: const TextStyle(color: Colors.white),
-              decoration: InputDecoration(
-                labelText: 'Nome do exercício',
-                labelStyle: const TextStyle(color: Colors.grey),
-                filled: true, fillColor: const Color(0xFF2A2A2A),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
-              ),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: seriesCtrl,
-                    keyboardType: TextInputType.number,
-                    style: const TextStyle(color: Colors.white),
-                    decoration: InputDecoration(
-                      labelText: 'Séries',
-                      labelStyle: const TextStyle(color: Colors.grey),
-                      filled: true, fillColor: const Color(0xFF2A2A2A),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: TextField(
-                    controller: repsCtrl,
-                    keyboardType: TextInputType.number,
-                    style: const TextStyle(color: Colors.white),
-                    decoration: InputDecoration(
-                      labelText: 'Repetições',
-                      labelStyle: const TextStyle(color: Colors.grey),
-                      filled: true, fillColor: const Color(0xFF2A2A2A),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancelar', style: TextStyle(color: Colors.grey)),
-          ),
-          TextButton(
-            onPressed: () async {
-              if (nomeCtrl.text.trim().isEmpty) {
-                _aviso('O exercício precisa de um nome.');
-                return;
-              }
-              (ex['nome'] as TextEditingController).text = nomeCtrl.text.trim();
-              (ex['series'] as TextEditingController).text = seriesCtrl.text.trim();
-              (ex['reps'] as TextEditingController).text = repsCtrl.text.trim();
-              setState(() {});
-              Navigator.pop(ctx);
-              if (_docId != null) await _sincronizarFirestore(silencioso: true);
-            },
-            child: const Text('Salvar',
-              style: TextStyle(color: accent, fontWeight: FontWeight.bold)),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ── Sincronizar exercícios no Firestore ───────────────────────────────────
-
-  Future<void> _sincronizarFirestore({bool silencioso = false}) async {
-    if (_docId == null) return;
+  Future<void> _sincronizar() async {
     try {
-      await _treinosRef.doc(_docId).update({'exercicios': _exerciciosData});
+      await _treinosRef.doc(_docId).update({
+        'exercicios': _exercicios.map((e) => e.toMap()).toList(),
+      });
     } on FirebaseException catch (e) {
-      if (!silencioso) _aviso('Erro ao sincronizar: ${e.message}');
+      _aviso('Erro ao sincronizar: ${e.message}');
     } catch (_) {
-      if (!silencioso) _aviso('Erro inesperado ao sincronizar.');
+      _aviso('Erro inesperado ao sincronizar.');
     }
   }
 
   // ── Validação geral ───────────────────────────────────────────────────────
 
   bool _validar() {
-    if (_nomeTreinoController.text.trim().isEmpty) {
+    if (_nomeTreino.text.trim().isEmpty) {
       _aviso('Dê um nome ao treino antes de continuar.'); return false;
     }
     if (_exercicios.isEmpty) {
       _aviso('Adicione ao menos um exercício antes de continuar.'); return false;
     }
     for (int i = 0; i < _exercicios.length; i++) {
-      if ((_exercicios[i]['nome'] as TextEditingController).text.trim().isEmpty) {
+      if (_exercicios[i].nome.text.trim().isEmpty) {
         _aviso('O exercício ${i + 1} precisa de um nome.'); return false;
       }
     }
     return true;
   }
-
-  List<Map<String, String>> get _exerciciosData => _exercicios.map((e) => {
-    'nome': (e['nome'] as TextEditingController).text.trim(),
-    'series': (e['series'] as TextEditingController).text.trim(),
-    'reps': (e['reps'] as TextEditingController).text.trim(),
-  }).toList();
 
   // ── Salvar ────────────────────────────────────────────────────────────────
 
@@ -227,16 +150,15 @@ class _TreinamentoPageState extends State<TreinamentoPage> {
 
     try {
       final dados = {
-        'nome': _nomeTreinoController.text.trim(),
-        'exercicios': _exerciciosData,
+        'nome': _nomeTreino.text.trim(),
+        'exercicios': _exercicios.map((e) => e.toMap()).toList(),
         'criadoEm': Timestamp.now(),
       };
 
       if (_docId != null) {
         await _treinosRef.doc(_docId).update(dados);
       } else {
-        final ref = await _treinosRef.add(dados);
-        _docId = ref.id;
+        _docId = (await _treinosRef.add(dados)).id;
       }
 
       if (!silencioso) {
@@ -256,48 +178,9 @@ class _TreinamentoPageState extends State<TreinamentoPage> {
     }
   }
 
-  // ── Concluir ──────────────────────────────────────────────────────────────
-
-  Future<void> _concluir() async {
-    final salvo = await _salvar(silencioso: true);
-    if (!salvo) return;
-
-    setState(() => _carregando = true);
-    try {
-      await _concluidosRef.add({
-        'data': Timestamp.now(),
-        'treinoId': _docId,
-        'nomeTreino': _nomeTreinoController.text.trim(),
-      });
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Row(children: const [
-          Icon(Icons.check_circle, color: Colors.black),
-          SizedBox(width: 10),
-          Expanded(child: Text(
-            'Treino concluído! Registrado no seu progresso.',
-            style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
-          )),
-        ]),
-        backgroundColor: accent,
-        behavior: SnackBarBehavior.floating,
-        duration: Duration(seconds: 2),
-      ));
-      await Future.delayed(const Duration(seconds: 2));
-      if (mounted) Navigator.pushReplacementNamed(context, '/inicio');
-    } on FirebaseException catch (e) {
-      _aviso('Erro ao concluir: ${e.message}');
-    } catch (_) {
-      _aviso('Erro inesperado ao concluir o treino.');
-    } finally {
-      if (mounted) setState(() => _carregando = false);
-    }
-  }
-
   // ── Deletar treino ────────────────────────────────────────────────────────
 
-  Future<void> _deletarTreino() async {
+  Future<void> _deletar() async {
     final confirmado = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -322,7 +205,6 @@ class _TreinamentoPageState extends State<TreinamentoPage> {
     );
 
     if (confirmado != true) return;
-
     try {
       if (_docId != null) await _treinosRef.doc(_docId).delete();
       if (mounted) Navigator.pushReplacementNamed(context, '/inicio');
@@ -333,21 +215,97 @@ class _TreinamentoPageState extends State<TreinamentoPage> {
     }
   }
 
+  // ── Edição individual via diálogo ─────────────────────────────────────────
+
+  void _editarExercicio(int index) {
+    final ex = _exercicios[index];
+    // copia os valores atuais para controllers temporários do diálogo
+    final nomeCtrl = TextEditingController(text: ex.nome.text);
+    final seriesCtrl = TextEditingController(text: ex.series.text);
+    final repsCtrl = TextEditingController(text: ex.reps.text);
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: bgCard,
+        title: const Text('Editar Exercício',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _campoTexto(nomeCtrl, 'Nome do exercício'),
+            const SizedBox(height: 12),
+            Row(children: [
+              Expanded(child: _campoTexto(seriesCtrl, 'Séries',
+                numerico: true)),
+              const SizedBox(width: 12),
+              Expanded(child: _campoTexto(repsCtrl, 'Repetições',
+                numerico: true)),
+            ]),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancelar', style: TextStyle(color: Colors.grey)),
+          ),
+          TextButton(
+            onPressed: () async {
+              if (nomeCtrl.text.trim().isEmpty) {
+                _aviso('O exercício precisa de um nome.'); return;
+              }
+              // aplica os valores editados no exercício original
+              ex.nome.text = nomeCtrl.text.trim();
+              ex.series.text = seriesCtrl.text.trim();
+              ex.reps.text = repsCtrl.text.trim();
+              setState(() {});
+              Navigator.pop(ctx);
+              if (_docId != null) await _sincronizar();
+            },
+            child: const Text('Salvar',
+              style: TextStyle(color: accent, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
   // ── Feedback ──────────────────────────────────────────────────────────────
 
   void _aviso(String msg) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(
     content: Text(msg, style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
-    backgroundColor:  accent,
+    backgroundColor: accent,
     behavior: SnackBarBehavior.floating,
-    duration: const Duration(seconds: 1),
+    duration: const Duration(seconds: 2),
   ));
 
   void _sucesso(String msg) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-    content: Text(msg, style: const TextStyle(color: Colors.black)),
+    content: Text(msg, style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
     backgroundColor: accent,
     behavior: SnackBarBehavior.floating,
-    duration: const Duration(seconds: 1),
+    duration: const Duration(seconds: 2),
   ));
+
+  // ── Campo de texto reutilizável ───────────────────────────────────────────
+
+  Widget _campoTexto(TextEditingController ctrl, String label,
+      {bool numerico = false}) {
+    return TextField(
+      controller: ctrl,
+      keyboardType: numerico ? TextInputType.number : TextInputType.text,
+      style: const TextStyle(color: Colors.white),
+      decoration: InputDecoration(
+        labelText: label,
+        labelStyle: const TextStyle(color: Colors.grey),
+        filled: true,
+        fillColor: const Color(0xFF2A2A2A),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: BorderSide.none,
+        ),
+      ),
+    );
+  }
 
   // ── Build ─────────────────────────────────────────────────────────────────
 
@@ -369,84 +327,73 @@ class _TreinamentoPageState extends State<TreinamentoPage> {
             }
           },
         ),
-        title: SizedBox(
-          height: 40,
-          child: TextField(
-            controller: _nomeTreinoController,
-            style: const TextStyle(
-              color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
-            decoration: const InputDecoration(
-              hintText: 'Nome do treino',
-              hintStyle: TextStyle(color: Colors.grey),
-              border: InputBorder.none,
-            ),
-          ),
-        ),
-        actions: [
-          Container(
-            margin: const EdgeInsets.only(right: 12),
-            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
-            decoration: BoxDecoration(
-              color: Color(0xFF1A1A1A),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: Color(0xFF2A2A2A)),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (_docId != null) ...[
-                  IconButton(
-                    icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
-                    onPressed: _carregando ? null : _deletarTreino,
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-                    tooltip: 'Excluir treino',
-                  ),
-                  Container(width: 1, height: 20, color: Color(0xFF2A2A2A)),
-                ],
-                if (_exercicios.length > 1) ...[
-                  IconButton(
-                    icon: Icon(
-                      Icons.swap_vert,
-                      color: _modoReordenar ? accent : Colors.white,
-                      size: 20,
-                    ),
-                    onPressed: () => setState(() {
-                      _modoReordenar = !_modoReordenar;
-                      if (_modoReordenar) _modoEdicao = false;
-                    }),
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-                    tooltip: 'Reordenar exercícios',
-                  ),
-                  Container(width: 1, height: 20, color: Color(0xFF2A2A2A)),
-                ],
-                TextButton(
-                  onPressed: () {
-                    if (_exercicios.isEmpty) {
-                      _aviso('Adicione ao menos um exercício para editar.');
-                      return;
-                    }
-                    setState(() {
-                      _modoEdicao = !_modoEdicao;
-                      if (_modoEdicao) _modoReordenar = false;
-                    });
-                  },
-                  style: TextButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 10),
-                    minimumSize: Size.zero,
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  ),
-                  child: Text(
-                    _modoEdicao ? 'Concluir' : 'Editar',
-                    style: TextStyle(
-                      color: _modoEdicao ? accent : Colors.white,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 13,
-                    ),
+        toolbarHeight: 72,
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: const [
+                Icon(Icons.flash_on, color: Color(0xFFCCFF00), size: 12),
+                SizedBox(width: 4),
+                Text(
+                  'TREINO',
+                  style: TextStyle(
+                    color: Color(0xFFCCFF00),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 1.5,
                   ),
                 ),
               ],
+            ),
+            const SizedBox(height: 2),
+            TextField(
+              controller: _nomeTreino,
+              style: const TextStyle(
+                color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+              decoration: const InputDecoration(
+                hintText: 'Nome do treino',
+                hintStyle: TextStyle(color: Colors.grey, fontSize: 20, fontWeight: FontWeight.bold),
+                border: InputBorder.none,
+                isDense: true,
+                contentPadding: EdgeInsets.zero,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          if (_docId != null)
+            IconButton(
+              icon: const Icon(Icons.delete_outline, color: Colors.red),
+              onPressed: _carregando ? null : _deletar,
+            ),
+          if (_exercicios.length > 1)
+            IconButton(
+              icon: Icon(Icons.swap_vert,
+                color: _modoReordenar ? accent : Colors.white),
+              onPressed: () => setState(() {
+                _modoReordenar = !_modoReordenar;
+                if (_modoReordenar) _modoEdicao = false;
+              }),
+            ),
+          TextButton(
+            onPressed: () {
+              if (_exercicios.isEmpty) {
+                _aviso('Adicione ao menos um exercício para editar.');
+                return;
+              }
+              setState(() {
+                _modoEdicao = !_modoEdicao;
+                if (_modoEdicao) _modoReordenar = false;
+              });
+            },
+            child: Text(
+              _modoEdicao ? 'Concluir edição' : 'Editar',
+              style: TextStyle(
+                color: _modoEdicao ? accent : Colors.white,
+                fontWeight: FontWeight.bold,
+              ),
             ),
           ),
         ],
@@ -459,89 +406,34 @@ class _TreinamentoPageState extends State<TreinamentoPage> {
                 : ListView(
                     padding: const EdgeInsets.all(16),
                     children: [
-                      ..._exercicios.asMap().entries.map((e) => _modoEdicao
-                          ? _cardEdicao(e.key, e.value)
-                          : _cardVisualizacao(e.key, e.value)),
+                      for (int i = 0; i < _exercicios.length; i++)
+                        _modoEdicao
+                            ? _cardEdicao(i)
+                            : _cardVisualizacao(i),
 
                       const SizedBox(height: 8),
-                      OutlinedButton(
-                        onPressed: _adicionarExercicio,
-                        style: OutlinedButton.styleFrom(
-                          side: const BorderSide(
-                            color: Color(0xFF444444),
-                            style: BorderStyle.solid,
-                            width: 1.5,
-                          ),
-                          backgroundColor: Colors.transparent,
-                          minimumSize: const Size(double.infinity, 50),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14)),
-                        ),
+
+                      _botaoOutline(
+                        onPressed: _adicionar,
                         child: const Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(Icons.add_circle_outline, color: Colors.grey, size: 18),
+                            Icon(Icons.add, color: Colors.white, size: 20),
                             SizedBox(width: 8),
-                            Text('Adicionar exercício',
-                              style: TextStyle(
-                                color: Colors.grey,
-                                fontWeight: FontWeight.w500,
-                                fontSize: 14,
-                              )),
+                            Text('Adicionar Exercício',
+                              style: TextStyle(color: Colors.white,
+                                fontWeight: FontWeight.w600, fontSize: 15)),
                           ],
                         ),
                       ),
 
-                      const SizedBox(height: 16),
-                      Row(
-                        children: [
-                          Expanded(
-                            flex: 2,
-                            child: OutlinedButton(
-                              onPressed: _carregando ? null : () => _salvar(),
-                              style: OutlinedButton.styleFrom(
-                                side: const BorderSide(color: Color(0xFF333333)),
-                                backgroundColor: bgCard,
-                                minimumSize: const Size(0, 52),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(14)),
-                              ),
-                              child: const Text('Salvar',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 14,
-                                )),
-                            ),
-                          ),
+                      const SizedBox(height: 12),
 
-                          const SizedBox(width: 10),
-
-                          Expanded(
-                            flex: 3,
-                            child: ElevatedButton.icon(
-                              onPressed: _carregando ? null : _concluir,
-                              icon: _carregando
-                                  ? const SizedBox(
-                                      width: 16, height: 16,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2, color: Colors.black))
-                                  : const Icon(Icons.check, color: Colors.black, size: 18),
-                              label: const Text('Concluir',
-                                style: TextStyle(
-                                  color: Colors.black,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 14,
-                                )),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: accent,
-                                minimumSize: const Size(0, 52),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(14)),
-                              ),
-                            ),
-                          ),
-                        ],
+                      _botaoOutline(
+                        onPressed: _carregando ? null : () => _salvar(),
+                        child: const Text('Salvar Treino',
+                          style: TextStyle(color: Colors.white,
+                            fontWeight: FontWeight.w600, fontSize: 15)),
                       ),
 
                       const SizedBox(height: 24),
@@ -553,23 +445,32 @@ class _TreinamentoPageState extends State<TreinamentoPage> {
     );
   }
 
-  // ── Lista reordenável ──────────────────────────────────────
+  // ── Botão outline reutilizável ────────────────────────────────────────────
+
+  Widget _botaoOutline({required Widget child, VoidCallback? onPressed}) {
+    return OutlinedButton(
+      onPressed: onPressed,
+      style: OutlinedButton.styleFrom(
+        side: const BorderSide(color: Color(0xFF333333)),
+        backgroundColor: bgCard,
+        minimumSize: const Size(double.infinity, 52),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      ),
+      child: child,
+    );
+  }
+
+  // ── Lista reordenável ─────────────────────────────────────────────────────
 
   Widget _listaReordenavel() {
     return ReorderableListView.builder(
       padding: const EdgeInsets.all(16),
       onReorder: _reordenar,
-      proxyDecorator: (child, index, animation) => Material(
-        color: Colors.transparent,
-        child: child,
-      ),
+      proxyDecorator: (child, index, animation) =>
+          Material(color: Colors.transparent, child: child),
       itemCount: _exercicios.length,
       itemBuilder: (context, i) {
         final ex = _exercicios[i];
-        final nome = (ex['nome'] as TextEditingController).text;
-        final series = (ex['series'] as TextEditingController).text;
-        final reps = (ex['reps'] as TextEditingController).text;
-
         return Container(
           key: ValueKey(i),
           margin: const EdgeInsets.only(bottom: 10),
@@ -585,12 +486,12 @@ class _TreinamentoPageState extends State<TreinamentoPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      nome.isEmpty ? 'Exercício ${i + 1}' : nome,
-                      style: const TextStyle(
-                        color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+                      ex.nome.text.isEmpty ? 'Exercício ${i + 1}' : ex.nome.text,
+                      style: const TextStyle(color: Colors.white,
+                        fontWeight: FontWeight.bold, fontSize: 15),
                     ),
                     const SizedBox(height: 2),
-                    Text('$series séries × $reps reps',
+                    Text('${ex.series.text} séries × ${ex.reps.text} reps',
                       style: const TextStyle(color: Colors.grey, fontSize: 13)),
                   ],
                 ),
@@ -602,12 +503,10 @@ class _TreinamentoPageState extends State<TreinamentoPage> {
     );
   }
 
-  Widget _cardVisualizacao(int index, Map<String, dynamic> ex) {
-    final nome = (ex['nome'] as TextEditingController).text;
-    final series = (ex['series'] as TextEditingController).text;
-    final reps = (ex['reps'] as TextEditingController).text;
-    final concluido = ex['concluido'] as bool;
+  // ── Card visualização ─────────────────────────────────────────────────────
 
+  Widget _cardVisualizacao(int i) {
+    final ex = _exercicios[i];
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
@@ -615,16 +514,18 @@ class _TreinamentoPageState extends State<TreinamentoPage> {
       child: Row(
         children: [
           GestureDetector(
-            onTap: () => _toggleExercicio(index),
+            onTap: () => _toggle(i),
             child: Container(
               width: 28, height: 28,
               decoration: BoxDecoration(
-                color: concluido ? accent : Colors.transparent,
+                color: ex.concluido ? accent : Colors.transparent,
                 shape: BoxShape.circle,
-                border: Border.all(color: concluido ? accent : Colors.grey, width: 2),
+                border: Border.all(
+                  color: ex.concluido ? accent : Colors.grey, width: 2),
               ),
-              child: concluido
-                  ? const Icon(Icons.check, size: 16, color: Colors.black) : null,
+              child: ex.concluido
+                  ? const Icon(Icons.check, size: 16, color: Colors.black)
+                  : null,
             ),
           ),
           const SizedBox(width: 14),
@@ -633,66 +534,42 @@ class _TreinamentoPageState extends State<TreinamentoPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  nome.isEmpty ? 'Exercício ${index + 1}' : nome,
+                  ex.nome.text.isEmpty ? 'Exercício ${i + 1}' : ex.nome.text,
                   style: TextStyle(
-                    color: concluido ? Colors.grey : Colors.white,
+                    color: ex.concluido ? Colors.grey : Colors.white,
                     fontWeight: FontWeight.bold, fontSize: 15,
-                    decoration: concluido ? TextDecoration.lineThrough : null,
+                    decoration:
+                        ex.concluido ? TextDecoration.lineThrough : null,
                   ),
                 ),
                 const SizedBox(height: 2),
-                Text('$series séries × $reps reps',
+                Text('${ex.series.text} séries × ${ex.reps.text} reps',
                   style: const TextStyle(color: Colors.grey, fontSize: 13)),
               ],
             ),
           ),
-          PopupMenuButton<String>(
-            onSelected: (value) {
-              if (value == 'editar') _editarExercicio(index);
-              if (value == 'excluir') _removerExercicio(index);
-            },
-            color: const Color(0xFF2A2A2A),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-            icon: Container(
-              width: 30,
-              height: 30,
-              decoration: BoxDecoration(
-                color: Color(0xFF2A2A2A),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Icon(Icons.more_horiz, color: Colors.grey, size: 18),
-            ),
-            itemBuilder: (ctx) => [
-              const PopupMenuItem(
-                value: 'editar',
-                child: Row(
-                  children: [
-                    Icon(Icons.edit_outlined, color: Colors.white, size: 18),
-                    SizedBox(width: 10),
-                    Text('Editar', style: TextStyle(color: Colors.white, fontSize: 14)),
-                  ],
-                ),
-              ),
-              const PopupMenuItem(
-                value: 'excluir',
-                child: Row(
-                  children: [
-                    Icon(Icons.delete_outline, color: Colors.red, size: 18),
-                    SizedBox(width: 10),
-                    Text('Excluir', style: TextStyle(color: Colors.red, fontSize: 14)),
-                  ],
-                ),
-              ),
-            ],
+          IconButton(
+            icon: const Icon(Icons.edit_outlined, color: Colors.grey, size: 20),
+            onPressed: () => _editarExercicio(i),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+          ),
+          const SizedBox(width: 8),
+          IconButton(
+            icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
+            onPressed: () => _remover(i),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
           ),
         ],
       ),
     );
   }
 
-  // ── Card edição geral ──────────────────────────────────────
+  // ── Card edição geral ─────────────────────────────────────────────────────
 
-  Widget _cardEdicao(int index, Map<String, dynamic> ex) {
+  Widget _cardEdicao(int i) {
+    final ex = _exercicios[i];
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(16),
@@ -700,64 +577,23 @@ class _TreinamentoPageState extends State<TreinamentoPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          TextField(
-            controller: ex['nome'] as TextEditingController,
-            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-            decoration: InputDecoration(
-              hintText: 'Nome do exercício',
-              hintStyle: const TextStyle(color: Colors.grey),
-              filled: true, fillColor: const Color(0xFF2A2A2A),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
-            ),
-          ),
+          _campoTexto(ex.nome, 'Nome do exercício'),
           const SizedBox(height: 12),
           Row(
             children: [
-              Expanded(child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('Séries', style: TextStyle(color: Colors.grey, fontSize: 12)),
-                  const SizedBox(height: 4),
-                  TextField(
-                    controller: ex['series'] as TextEditingController,
-                    keyboardType: TextInputType.number,
-                    style: const TextStyle(color: Colors.white),
-                    decoration: InputDecoration(
-                      filled: true, fillColor: const Color(0xFF2A2A2A),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
-                    ),
-                  ),
-                ],
-              )),
+              Expanded(child: _campoTexto(ex.series, 'Séries', numerico: true)),
               const SizedBox(width: 12),
-              Expanded(child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('Repetições', style: TextStyle(color: Colors.grey, fontSize: 12)),
-                  const SizedBox(height: 4),
-                  TextField(
-                    controller: ex['reps'] as TextEditingController,
-                    keyboardType: TextInputType.number,
-                    style: const TextStyle(color: Colors.white),
-                    decoration: InputDecoration(
-                      filled: true, fillColor: const Color(0xFF2A2A2A),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
-                    ),
-                  ),
-                ],
-              )),
+              Expanded(child: _campoTexto(ex.reps, 'Repetições', numerico: true)),
             ],
           ),
           const SizedBox(height: 12),
           ElevatedButton(
-            onPressed: () => _removerExercicio(index),
+            onPressed: () => _remover(i),
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.red,
               minimumSize: const Size(double.infinity, 46),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10)),
             ),
             child: const Text('Excluir Exercício',
               style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),

@@ -21,6 +21,46 @@ class _InicioPageState extends State<InicioPage> {
         .collection('treinos');
   }
 
+  CollectionReference get _concluidosRef {
+    final uid = FirebaseAuth.instance.currentUser!.uid;
+    return FirebaseFirestore.instance
+        .collection('usuarios')
+        .doc(uid)
+        .collection('treinos_concluidos');
+  }
+
+  // Retorna true se o treino [treinoId] já foi concluído hoje
+  bool _concluidoHoje(List<QueryDocumentSnapshot> concluidos, String treinoId) {
+    final hoje = DateTime.now();
+    return concluidos.any((doc) {
+      final data = doc.data() as Map<String, dynamic>;
+      if (data['treinoId'] != treinoId) return false;
+      final dt = (data['data'] as Timestamp).toDate();
+      return dt.year == hoje.year && dt.month == hoje.month && dt.day == hoje.day;
+    });
+  }
+
+  Future<void> _concluirTreino(String treinoId, String nomeTreino) async {
+    await _concluidosRef.add({
+      'data': Timestamp.now(),
+      'treinoId': treinoId,
+      'nomeTreino': nomeTreino,
+    });
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: const Row(children: [
+          Icon(Icons.check_circle, color: Colors.black),
+          SizedBox(width: 10),
+          Text('Treino concluído!',
+              style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+        ]),
+        backgroundColor: const Color(0xFFCCFF00),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 2),
+      ));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final hoje = DateTime.now();
@@ -184,70 +224,105 @@ class _InicioPageState extends State<InicioPage> {
               SizedBox(height: 12),
               Expanded(
                 child: StreamBuilder<QuerySnapshot>(
-                  stream: _treinosRef.orderBy('criadoEm', descending: true).snapshots(),
-                  builder: (context, snap) {
-                    final docs = snap.data?.docs ?? [];
-                    return ListView(
-                      children: [
-                        ...docs.map((doc) {
-                          final data = doc.data() as Map<String, dynamic>;
-                          final nomeTreino = data['nome'] ?? 'Treino';
-                          final exercicios = (data['exercicios'] as List?)?.length ?? 0;
+                  // stream secundário: concluídos de hoje para marcar o check
+                  stream: () {
+                    final uid = FirebaseAuth.instance.currentUser!.uid;
+                    final hoje = DateTime.now();
+                    final inicioDia = Timestamp.fromDate(DateTime(hoje.year, hoje.month, hoje.day));
+                    final fimDia   = Timestamp.fromDate(DateTime(hoje.year, hoje.month, hoje.day + 1));
+                    return FirebaseFirestore.instance
+                        .collection('usuarios').doc(uid).collection('treinos_concluidos')
+                        .where('data', isGreaterThanOrEqualTo: inicioDia)
+                        .where('data', isLessThan: fimDia)
+                        .snapshots();
+                  }(),
+                  builder: (context, snapConcluidos) {
+                    final concluidos = snapConcluidos.data?.docs ?? [];
+                    return StreamBuilder<QuerySnapshot>(
+                      stream: _treinosRef.orderBy('criadoEm', descending: true).snapshots(),
+                      builder: (context, snap) {
+                        final docs = snap.data?.docs ?? [];
+                        return ListView(
+                          children: [
+                            ...docs.map((doc) {
+                              final data = doc.data() as Map<String, dynamic>;
+                              final nomeTreino = data['nome'] ?? 'Treino';
+                              final exercicios = (data['exercicios'] as List?)?.length ?? 0;
+                              final feito = _concluidoHoje(concluidos, doc.id);
 
-                          return GestureDetector(
-                            onTap: () => Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => TreinamentoPage(
-                                  treinoId: doc.id,
-                                  treinoExistente: data,
+                              return GestureDetector(
+                                onTap: () => Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => TreinamentoPage(
+                                      treinoId: doc.id,
+                                      treinoExistente: data,
+                                    ),
+                                  ),
                                 ),
-                              ),
-                            ),
-                            child: Container(
-                              margin: const EdgeInsets.only(bottom: 10),
-                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                              decoration: BoxDecoration(
-                                color: Color(0xFF1A1A1A),
-                                borderRadius: BorderRadius.circular(14),
-                              ),
-                              child: Row(
-                                children: [
-                                  Container(
-                                    padding: const EdgeInsets.all(8),
-                                    decoration: const BoxDecoration(
-                                      color: Color(0xFF2A2A2A),
-                                      shape: BoxShape.circle,
-                                    ),
-                                    child: const Icon(Icons.flash_on, color: Color(0xFFCCFF00), size: 20),
+                                child: Container(
+                                  margin: const EdgeInsets.only(bottom: 10),
+                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                                  decoration: BoxDecoration(
+                                    color: Color(0xFF1A1A1A),
+                                    borderRadius: BorderRadius.circular(14),
                                   ),
-                                  const SizedBox(width: 14),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          nomeTreino,
-                                          style: const TextStyle(
-                                            color: Colors.white,
-                                            fontWeight: FontWeight.bold,
-                                            fontSize: 15,
+                                  child: Row(
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.all(8),
+                                        decoration: const BoxDecoration(
+                                          color: Color(0xFF2A2A2A),
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: const Icon(Icons.flash_on, color: Color(0xFFCCFF00), size: 20),
+                                      ),
+                                      const SizedBox(width: 14),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              nomeTreino,
+                                              style: const TextStyle(
+                                                color: Colors.white,
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 15,
+                                              ),
+                                            ),
+                                            Text(
+                                              '$exercicios exercício${exercicios == 1 ? '' : 's'}',
+                                              style: const TextStyle(color: Colors.grey, fontSize: 13),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      // botão de check diário
+                                      GestureDetector(
+                                        onTap: feito ? null : () => _concluirTreino(doc.id, nomeTreino),
+                                        child: Container(
+                                          width: 32, height: 32,
+                                          decoration: BoxDecoration(
+                                            color: feito ? const Color(0xFFCCFF00) : Colors.transparent,
+                                            shape: BoxShape.circle,
+                                            border: Border.all(
+                                              color: feito ? const Color(0xFFCCFF00) : Colors.grey,
+                                              width: 2,
+                                            ),
                                           ),
+                                          child: feito
+                                              ? const Icon(Icons.check, size: 18, color: Colors.black)
+                                              : null,
                                         ),
-                                        Text(
-                                          '$exercicios exercício${exercicios == 1 ? '' : 's'}',
-                                          style: const TextStyle(color: Colors.grey, fontSize: 13),
-                                        ),
-                                      ],
-                                    ),
+                                      ),
+                                    ],
                                   ),
-                                  const Icon(Icons.chevron_right, color: Colors.grey),
-                                ],
-                              ),
-                            ),
-                          );
-                        }),
-                      ],
+                                ),
+                              );
+                            }),
+                          ],
+                        );
+                      },
                     );
                   },
                 ),

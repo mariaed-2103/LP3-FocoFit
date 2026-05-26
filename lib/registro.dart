@@ -130,6 +130,20 @@ class _RegistroPageState extends State<RegistroPage> {
                         password: txtSenha.text,
                       );
                   await credential.user?.updateDisplayName(txtNome.text);
+                  if (!context.mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                    content: const Row(children: [
+                      Icon(Icons.check_circle, color: Colors.black),
+                      SizedBox(width: 10),
+                      Text('Conta criada com sucesso!',
+                          style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                    ]),
+                    backgroundColor: const Color(0xFFCCFF00),
+                    behavior: SnackBarBehavior.floating,
+                    duration: const Duration(seconds: 2),
+                  ));
+                  await Future.delayed(const Duration(seconds: 2));
+                  if (!context.mounted) return;
                   Navigator.of(context)
                     ..pop()
                     ..pushReplacementNamed("/inicio");
