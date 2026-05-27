@@ -14,7 +14,13 @@ const firebaseConfig = FirebaseOptions(
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(options: firebaseConfig);
+  
+  // Inicialização dinâmica: tenta carregar o nativo primeiro, usa a Web como plano B
+  try {
+    await Firebase.initializeApp();
+  } catch (e) {
+    await Firebase.initializeApp(options: firebaseConfig);
+  }
 
   // Cache offline: na próxima abertura carrega do disco instantaneamente
   FirebaseFirestore.instance.settings = const Settings(

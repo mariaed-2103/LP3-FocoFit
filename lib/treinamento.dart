@@ -2,10 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-// ── Modelo simples de exercício ───────────────────────────────────────────────
-// Substitui os Map<String, dynamic> com TextEditingController dentro,
-// tornando o código muito mais legível e sem necessidade de casts
-
 class Exercicio {
   final TextEditingController nome;
   final TextEditingController series;
@@ -18,14 +14,12 @@ class Exercicio {
         reps = TextEditingController(text: reps),
         concluido = false;
 
-  // converte para Map ao salvar no Firestore
   Map<String, String> toMap() => {
     'nome': nome.text.trim(),
     'series': series.text.trim(),
     'reps': reps.text.trim(),
   };
 
-  // cria um Exercicio a partir de um Map vindo do Firestore
   factory Exercicio.fromMap(Map<String, dynamic> map) => Exercicio(
     nome: map['nome'] ?? '',
     series: map['series'] ?? '3',
@@ -38,8 +32,6 @@ class Exercicio {
     reps.dispose();
   }
 }
-
-// ── Página de treinamento ─────────────────────────────────────────────────────
 
 class TreinamentoPage extends StatefulWidget {
   final String? treinoId;
@@ -57,10 +49,14 @@ class _TreinamentoPageState extends State<TreinamentoPage> {
 
   final _nomeTreino = TextEditingController();
   final List<Exercicio> _exercicios = [];
+  final Set<int> _novos = {};
   bool _modoEdicao = false;
   bool _modoReordenar = false;
   bool _carregando = false;
   String? _docId;
+
+  // ── verdadeiro quando há qualquer card aberto em edição ───────────────────
+  bool get _emEdicao => _modoEdicao || _novos.isNotEmpty;
 
   @override
   void initState() {
@@ -72,7 +68,7 @@ class _TreinamentoPageState extends State<TreinamentoPage> {
         _exercicios.add(Exercicio.fromMap(ex));
       }
     } else {
-      _modoEdicao = true; // novo treino já abre em modo edição
+      _modoEdicao = true;
     }
   }
 
@@ -93,12 +89,30 @@ class _TreinamentoPageState extends State<TreinamentoPage> {
         .collection('treinos');
   }
 
+  CollectionReference get _concluidosRef {
+    final uid = FirebaseAuth.instance.currentUser!.uid;
+    return FirebaseFirestore.instance
+        .collection('usuarios')
+        .doc(uid)
+        .collection('treinos_concluidos');
+  }
+
   // ── Exercícios ────────────────────────────────────────────────────────────
 
-  void _adicionar() => setState(() => _exercicios.add(Exercicio()));
+  void _adicionar() => setState(() {
+    _novos.add(_exercicios.length);
+    _exercicios.add(Exercicio());
+  });
 
   Future<void> _remover(int i) async {
-    setState(() => _exercicios.removeAt(i));
+    setState(() {
+      _exercicios.removeAt(i);
+      _novos.remove(i);
+      final ajustados = _novos
+          .map((idx) => idx > i ? idx - 1 : idx)
+          .toSet();
+      _novos..clear()..addAll(ajustados);
+    });
     if (_docId != null) await _sincronizar();
   }
 
@@ -111,7 +125,7 @@ class _TreinamentoPageState extends State<TreinamentoPage> {
     if (_docId != null) await _sincronizar();
   }
 
-  // ── Sincronizar exercícios no Firestore (sem validação geral) ─────────────
+  // ── Sincronizar ───────────────────────────────────────────────────────────
 
   Future<void> _sincronizar() async {
     try {
@@ -125,7 +139,7 @@ class _TreinamentoPageState extends State<TreinamentoPage> {
     }
   }
 
-  // ── Validação geral ───────────────────────────────────────────────────────
+  // ── Validação ─────────────────────────────────────────────────────────────
 
   bool _validar() {
     if (_nomeTreino.text.trim().isEmpty) {
@@ -178,6 +192,44 @@ class _TreinamentoPageState extends State<TreinamentoPage> {
     }
   }
 
+  // ── Concluir treino ───────────────────────────────────────────────────────
+
+  Future<void> _concluir() async {
+    if (!await _salvar(silencioso: true)) return;
+    setState(() => _carregando = true);
+
+    try {
+      await _concluidosRef.add({
+        'data': Timestamp.now(),
+        'treinoId': _docId,
+        'nomeTreino': _nomeTreino.text.trim(),
+      });
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Row(children: const [
+          Icon(Icons.check_circle, color: Colors.black),
+          SizedBox(width: 10),
+          Expanded(child: Text(
+            'Treino concluído! Registrado no seu progresso.',
+            style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
+          )),
+        ]),
+        backgroundColor: accent,
+        behavior: SnackBarBehavior.floating,
+        duration: Duration(seconds: 2),
+      ));
+      await Future.delayed(const Duration(seconds: 2));
+      if (mounted) Navigator.pushReplacementNamed(context, '/inicio');
+    } on FirebaseException catch (e) {
+      _aviso('Erro ao concluir: ${e.message}');
+    } catch (_) {
+      _aviso('Erro inesperado ao concluir o treino.');
+    } finally {
+      if (mounted) setState(() => _carregando = false);
+    }
+  }
+
   // ── Deletar treino ────────────────────────────────────────────────────────
 
   Future<void> _deletar() async {
@@ -219,7 +271,6 @@ class _TreinamentoPageState extends State<TreinamentoPage> {
 
   void _editarExercicio(int index) {
     final ex = _exercicios[index];
-    // copia os valores atuais para controllers temporários do diálogo
     final nomeCtrl = TextEditingController(text: ex.nome.text);
     final seriesCtrl = TextEditingController(text: ex.series.text);
     final repsCtrl = TextEditingController(text: ex.reps.text);
@@ -236,11 +287,9 @@ class _TreinamentoPageState extends State<TreinamentoPage> {
             _campoTexto(nomeCtrl, 'Nome do exercício'),
             const SizedBox(height: 12),
             Row(children: [
-              Expanded(child: _campoTexto(seriesCtrl, 'Séries',
-                numerico: true)),
+              Expanded(child: _campoTexto(seriesCtrl, 'Séries', numerico: true)),
               const SizedBox(width: 12),
-              Expanded(child: _campoTexto(repsCtrl, 'Repetições',
-                numerico: true)),
+              Expanded(child: _campoTexto(repsCtrl, 'Repetições', numerico: true)),
             ]),
           ],
         ),
@@ -254,7 +303,6 @@ class _TreinamentoPageState extends State<TreinamentoPage> {
               if (nomeCtrl.text.trim().isEmpty) {
                 _aviso('O exercício precisa de um nome.'); return;
               }
-              // aplica os valores editados no exercício original
               ex.nome.text = nomeCtrl.text.trim();
               ex.series.text = seriesCtrl.text.trim();
               ex.reps.text = repsCtrl.text.trim();
@@ -273,14 +321,16 @@ class _TreinamentoPageState extends State<TreinamentoPage> {
   // ── Feedback ──────────────────────────────────────────────────────────────
 
   void _aviso(String msg) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-    content: Text(msg, style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+    content: Text(msg, style: const TextStyle(
+      color: Colors.black, fontWeight: FontWeight.bold)),
     backgroundColor: accent,
     behavior: SnackBarBehavior.floating,
     duration: const Duration(seconds: 2),
   ));
 
   void _sucesso(String msg) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-    content: Text(msg, style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+    content: Text(msg, style: const TextStyle(
+      color: Colors.black, fontWeight: FontWeight.bold)),
     backgroundColor: accent,
     behavior: SnackBarBehavior.floating,
     duration: const Duration(seconds: 2),
@@ -320,8 +370,12 @@ class _TreinamentoPageState extends State<TreinamentoPage> {
           onPressed: () {
             if (_modoReordenar) {
               setState(() => _modoReordenar = false);
-            } else if (_modoEdicao) {
-              setState(() => _modoEdicao = false);
+            } else if (_emEdicao) {
+              // fecha qualquer modo de edição ativo
+              setState(() {
+                _modoEdicao = false;
+                _novos.clear();
+              });
             } else {
               Navigator.pushReplacementNamed(context, '/inicio');
             }
@@ -336,15 +390,9 @@ class _TreinamentoPageState extends State<TreinamentoPage> {
               children: const [
                 Icon(Icons.flash_on, color: Color(0xFFCCFF00), size: 12),
                 SizedBox(width: 4),
-                Text(
-                  'TREINO',
-                  style: TextStyle(
-                    color: Color(0xFFCCFF00),
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 1.5,
-                  ),
-                ),
+                Text('TREINO', style: TextStyle(
+                  color: Color(0xFFCCFF00), fontSize: 11,
+                  fontWeight: FontWeight.w700, letterSpacing: 1.5)),
               ],
             ),
             const SizedBox(height: 2),
@@ -354,7 +402,8 @@ class _TreinamentoPageState extends State<TreinamentoPage> {
                 color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
               decoration: const InputDecoration(
                 hintText: 'Nome do treino',
-                hintStyle: TextStyle(color: Colors.grey, fontSize: 20, fontWeight: FontWeight.bold),
+                hintStyle: TextStyle(color: Colors.grey, fontSize: 20,
+                  fontWeight: FontWeight.bold),
                 border: InputBorder.none,
                 isDense: true,
                 contentPadding: EdgeInsets.zero,
@@ -384,14 +433,20 @@ class _TreinamentoPageState extends State<TreinamentoPage> {
                 return;
               }
               setState(() {
-                _modoEdicao = !_modoEdicao;
-                if (_modoEdicao) _modoReordenar = false;
+                if (_novos.isNotEmpty && !_modoEdicao) {
+                  // só havia novos abertos — fecha sem ativar modo edição geral
+                  _novos.clear();
+                } else {
+                  _modoEdicao = !_modoEdicao;
+                  if (!_modoEdicao) _novos.clear();
+                  if (_modoEdicao) _modoReordenar = false;
+                }
               });
             },
             child: Text(
-              _modoEdicao ? 'Concluir edição' : 'Editar',
+              _emEdicao ? 'Concluir edição' : 'Editar',
               style: TextStyle(
-                color: _modoEdicao ? accent : Colors.white,
+                color: _emEdicao ? accent : Colors.white,
                 fontWeight: FontWeight.bold,
               ),
             ),
@@ -407,7 +462,7 @@ class _TreinamentoPageState extends State<TreinamentoPage> {
                     padding: const EdgeInsets.all(16),
                     children: [
                       for (int i = 0; i < _exercicios.length; i++)
-                        _modoEdicao
+                        (_modoEdicao || _novos.contains(i))
                             ? _cardEdicao(i)
                             : _cardVisualizacao(i),
 
@@ -434,6 +489,26 @@ class _TreinamentoPageState extends State<TreinamentoPage> {
                         child: const Text('Salvar Treino',
                           style: TextStyle(color: Colors.white,
                             fontWeight: FontWeight.w600, fontSize: 15)),
+                      ),
+
+                      const SizedBox(height: 12),
+
+                      ElevatedButton.icon(
+                        onPressed: _carregando ? null : _concluir,
+                        icon: _carregando
+                            ? const SizedBox(width: 18, height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2, color: Colors.black))
+                            : const Icon(Icons.check, color: Colors.black),
+                        label: const Text('Concluir Treino',
+                          style: TextStyle(color: Colors.black,
+                            fontWeight: FontWeight.bold, fontSize: 15)),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: accent,
+                          minimumSize: const Size(double.infinity, 52),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14)),
+                        ),
                       ),
 
                       const SizedBox(height: 24),
@@ -538,8 +613,7 @@ class _TreinamentoPageState extends State<TreinamentoPage> {
                   style: TextStyle(
                     color: ex.concluido ? Colors.grey : Colors.white,
                     fontWeight: FontWeight.bold, fontSize: 15,
-                    decoration:
-                        ex.concluido ? TextDecoration.lineThrough : null,
+                    decoration: ex.concluido ? TextDecoration.lineThrough : null,
                   ),
                 ),
                 const SizedBox(height: 2),
