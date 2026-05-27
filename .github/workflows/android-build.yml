@@ -22,7 +22,7 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: "3.27.0" # Alinhado com o seu SDK Dart ^3.7.2
+          flutter-version: "3.30.0" # Versão atualizada que suporta o Dart 3.7+
           channel: stable
           cache: true
 
