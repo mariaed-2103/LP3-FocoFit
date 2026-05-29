@@ -55,7 +55,6 @@ class _TreinamentoPageState extends State<TreinamentoPage> {
   bool _carregando = false;
   String? _docId;
 
-  // ── verdadeiro quando há qualquer card aberto em edição ───────────────────
   bool get _emEdicao => _modoEdicao || _novos.isNotEmpty;
 
   @override
@@ -89,14 +88,6 @@ class _TreinamentoPageState extends State<TreinamentoPage> {
         .collection('treinos');
   }
 
-  CollectionReference get _concluidosRef {
-    final uid = FirebaseAuth.instance.currentUser!.uid;
-    return FirebaseFirestore.instance
-        .collection('usuarios')
-        .doc(uid)
-        .collection('treinos_concluidos');
-  }
-
   // ── Exercícios ────────────────────────────────────────────────────────────
 
   void _adicionar() => setState(() {
@@ -107,10 +98,9 @@ class _TreinamentoPageState extends State<TreinamentoPage> {
   Future<void> _remover(int i) async {
     setState(() {
       _exercicios.removeAt(i);
-      _novos.remove(i);
-      final ajustados = _novos
-          .map((idx) => idx > i ? idx - 1 : idx)
-          .toSet();
+      // remove o índice e reajusta os que eram maiores que i
+      _novos.removeWhere((idx) => idx == i);
+      final ajustados = _novos.map((idx) => idx > i ? idx - 1 : idx).toSet();
       _novos..clear()..addAll(ajustados);
     });
     if (_docId != null) await _sincronizar();
@@ -133,9 +123,9 @@ class _TreinamentoPageState extends State<TreinamentoPage> {
         'exercicios': _exercicios.map((e) => e.toMap()).toList(),
       });
     } on FirebaseException catch (e) {
-      _aviso('Erro ao sincronizar: ${e.message}');
+      _snackbar('Erro ao sincronizar: ${e.message}');
     } catch (_) {
-      _aviso('Erro inesperado ao sincronizar.');
+      _snackbar('Erro inesperado ao sincronizar.');
     }
   }
 
@@ -143,14 +133,11 @@ class _TreinamentoPageState extends State<TreinamentoPage> {
 
   bool _validar() {
     if (_nomeTreino.text.trim().isEmpty) {
-      _aviso('Dê um nome ao treino antes de continuar.'); return false;
-    }
-    if (_exercicios.isEmpty) {
-      _aviso('Adicione ao menos um exercício antes de continuar.'); return false;
+      _snackbar('Dê um nome ao treino antes de continuar.'); return false;
     }
     for (int i = 0; i < _exercicios.length; i++) {
       if (_exercicios[i].nome.text.trim().isEmpty) {
-        _aviso('O exercício ${i + 1} precisa de um nome.'); return false;
+        _snackbar('O exercício ${i + 1} precisa de um nome.'); return false;
       }
     }
     return true;
@@ -158,10 +145,15 @@ class _TreinamentoPageState extends State<TreinamentoPage> {
 
   // ── Salvar ────────────────────────────────────────────────────────────────
 
-  Future<bool> _salvar({bool silencioso = false}) async {
-    if (!_validar()) return false;
-    setState(() => _carregando = true);
+  Future<void> _salvar() async {
+    if (!_validar()) return;
 
+    if (_exercicios.isEmpty) {
+      _snackbar('Treino salvo! Lembre-se de adicionar exercícios depois.',
+          duracao: 3);
+    }
+
+    setState(() => _carregando = true);
     try {
       final dados = {
         'nome': _nomeTreino.text.trim(),
@@ -175,56 +167,13 @@ class _TreinamentoPageState extends State<TreinamentoPage> {
         _docId = (await _treinosRef.add(dados)).id;
       }
 
-      if (!silencioso) {
-        _sucesso('Treino salvo com sucesso!');
-        await Future.delayed(const Duration(seconds: 2));
-        if (mounted) Navigator.pushReplacementNamed(context, '/inicio');
-      }
-      return true;
-    } on FirebaseException catch (e) {
-      _aviso('Erro ao salvar: ${e.message}');
-      return false;
-    } catch (_) {
-      _aviso('Erro inesperado ao salvar o treino.');
-      return false;
-    } finally {
-      if (mounted) setState(() => _carregando = false);
-    }
-  }
-
-  // ── Concluir treino ───────────────────────────────────────────────────────
-
-  Future<void> _concluir() async {
-    if (!await _salvar(silencioso: true)) return;
-    setState(() => _carregando = true);
-
-    try {
-      await _concluidosRef.add({
-        'data': Timestamp.now(),
-        'treinoId': _docId,
-        'nomeTreino': _nomeTreino.text.trim(),
-      });
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Row(children: const [
-          Icon(Icons.check_circle, color: Colors.black),
-          SizedBox(width: 10),
-          Expanded(child: Text(
-            'Treino concluído! Registrado no seu progresso.',
-            style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
-          )),
-        ]),
-        backgroundColor: accent,
-        behavior: SnackBarBehavior.floating,
-        duration: Duration(seconds: 2),
-      ));
+      if (_exercicios.isNotEmpty) _snackbar('Treino salvo com sucesso!');
       await Future.delayed(const Duration(seconds: 2));
       if (mounted) Navigator.pushReplacementNamed(context, '/inicio');
     } on FirebaseException catch (e) {
-      _aviso('Erro ao concluir: ${e.message}');
+      _snackbar('Erro ao salvar: ${e.message}');
     } catch (_) {
-      _aviso('Erro inesperado ao concluir o treino.');
+      _snackbar('Erro inesperado ao salvar o treino.');
     } finally {
       if (mounted) setState(() => _carregando = false);
     }
@@ -261,9 +210,9 @@ class _TreinamentoPageState extends State<TreinamentoPage> {
       if (_docId != null) await _treinosRef.doc(_docId).delete();
       if (mounted) Navigator.pushReplacementNamed(context, '/inicio');
     } on FirebaseException catch (e) {
-      _aviso('Erro ao excluir: ${e.message}');
+      _snackbar('Erro ao excluir: ${e.message}');
     } catch (_) {
-      _aviso('Erro inesperado ao excluir o treino.');
+      _snackbar('Erro inesperado ao excluir o treino.');
     }
   }
 
@@ -301,7 +250,7 @@ class _TreinamentoPageState extends State<TreinamentoPage> {
           TextButton(
             onPressed: () async {
               if (nomeCtrl.text.trim().isEmpty) {
-                _aviso('O exercício precisa de um nome.'); return;
+                _snackbar('O exercício precisa de um nome.'); return;
               }
               ex.nome.text = nomeCtrl.text.trim();
               ex.series.text = seriesCtrl.text.trim();
@@ -318,23 +267,18 @@ class _TreinamentoPageState extends State<TreinamentoPage> {
     );
   }
 
-  // ── Feedback ──────────────────────────────────────────────────────────────
+  // ── Snackbar unificado ────────────────────────────────────────────────────
+  // substitui _aviso e _sucesso que faziam a mesma coisa
 
-  void _aviso(String msg) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-    content: Text(msg, style: const TextStyle(
-      color: Colors.black, fontWeight: FontWeight.bold)),
-    backgroundColor: accent,
-    behavior: SnackBarBehavior.floating,
-    duration: const Duration(seconds: 2),
-  ));
-
-  void _sucesso(String msg) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-    content: Text(msg, style: const TextStyle(
-      color: Colors.black, fontWeight: FontWeight.bold)),
-    backgroundColor: accent,
-    behavior: SnackBarBehavior.floating,
-    duration: const Duration(seconds: 2),
-  ));
+  void _snackbar(String msg, {int duracao = 2}) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(msg, style: const TextStyle(
+        color: Colors.black, fontWeight: FontWeight.bold)),
+      backgroundColor: accent,
+      behavior: SnackBarBehavior.floating,
+      duration: Duration(seconds: duracao),
+    ));
+  }
 
   // ── Campo de texto reutilizável ───────────────────────────────────────────
 
@@ -371,11 +315,7 @@ class _TreinamentoPageState extends State<TreinamentoPage> {
             if (_modoReordenar) {
               setState(() => _modoReordenar = false);
             } else if (_emEdicao) {
-              // fecha qualquer modo de edição ativo
-              setState(() {
-                _modoEdicao = false;
-                _novos.clear();
-              });
+              setState(() { _modoEdicao = false; _novos.clear(); });
             } else {
               Navigator.pushReplacementNamed(context, '/inicio');
             }
@@ -386,15 +326,13 @@ class _TreinamentoPageState extends State<TreinamentoPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Row(
-              children: const [
-                Icon(Icons.flash_on, color: Color(0xFFCCFF00), size: 12),
-                SizedBox(width: 4),
-                Text('TREINO', style: TextStyle(
-                  color: Color(0xFFCCFF00), fontSize: 11,
-                  fontWeight: FontWeight.w700, letterSpacing: 1.5)),
-              ],
-            ),
+            const Row(children: [
+              Icon(Icons.flash_on, color: accent, size: 12),
+              SizedBox(width: 4),
+              Text('TREINO', style: TextStyle(
+                color: accent, fontSize: 11,
+                fontWeight: FontWeight.w700, letterSpacing: 1.5)),
+            ]),
             const SizedBox(height: 2),
             TextField(
               controller: _nomeTreino,
@@ -429,12 +367,11 @@ class _TreinamentoPageState extends State<TreinamentoPage> {
           TextButton(
             onPressed: () {
               if (_exercicios.isEmpty) {
-                _aviso('Adicione ao menos um exercício para editar.');
+                _snackbar('Adicione ao menos um exercício para editar.');
                 return;
               }
               setState(() {
                 if (_novos.isNotEmpty && !_modoEdicao) {
-                  // só havia novos abertos — fecha sem ativar modo edição geral
                   _novos.clear();
                 } else {
                   _modoEdicao = !_modoEdicao;
@@ -465,9 +402,7 @@ class _TreinamentoPageState extends State<TreinamentoPage> {
                         (_modoEdicao || _novos.contains(i))
                             ? _cardEdicao(i)
                             : _cardVisualizacao(i),
-
                       const SizedBox(height: 8),
-
                       _botaoOutline(
                         onPressed: _adicionar,
                         child: const Row(
@@ -481,36 +416,17 @@ class _TreinamentoPageState extends State<TreinamentoPage> {
                           ],
                         ),
                       ),
-
                       const SizedBox(height: 12),
-
                       _botaoOutline(
-                        onPressed: _carregando ? null : () => _salvar(),
-                        child: const Text('Salvar Treino',
-                          style: TextStyle(color: Colors.white,
-                            fontWeight: FontWeight.w600, fontSize: 15)),
-                      ),
-
-                      const SizedBox(height: 12),
-
-                      ElevatedButton.icon(
-                        onPressed: _carregando ? null : _concluir,
-                        icon: _carregando
+                        onPressed: _carregando ? null : _salvar,
+                        child: _carregando
                             ? const SizedBox(width: 18, height: 18,
                                 child: CircularProgressIndicator(
-                                  strokeWidth: 2, color: Colors.black))
-                            : const Icon(Icons.check, color: Colors.black),
-                        label: const Text('Concluir Treino',
-                          style: TextStyle(color: Colors.black,
-                            fontWeight: FontWeight.bold, fontSize: 15)),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: accent,
-                          minimumSize: const Size(double.infinity, 52),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14)),
-                        ),
+                                  strokeWidth: 2, color: Colors.white))
+                            : const Text('Salvar Treino',
+                                style: TextStyle(color: Colors.white,
+                                  fontWeight: FontWeight.w600, fontSize: 15)),
                       ),
-
                       const SizedBox(height: 24),
                     ],
                   ),
@@ -653,21 +569,18 @@ class _TreinamentoPageState extends State<TreinamentoPage> {
         children: [
           _campoTexto(ex.nome, 'Nome do exercício'),
           const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(child: _campoTexto(ex.series, 'Séries', numerico: true)),
-              const SizedBox(width: 12),
-              Expanded(child: _campoTexto(ex.reps, 'Repetições', numerico: true)),
-            ],
-          ),
+          Row(children: [
+            Expanded(child: _campoTexto(ex.series, 'Séries', numerico: true)),
+            const SizedBox(width: 12),
+            Expanded(child: _campoTexto(ex.reps, 'Repetições', numerico: true)),
+          ]),
           const SizedBox(height: 12),
           ElevatedButton(
             onPressed: () => _remover(i),
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.red,
               minimumSize: const Size(double.infinity, 46),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
             ),
             child: const Text('Excluir Exercício',
               style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),

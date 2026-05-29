@@ -46,12 +46,13 @@ class _InicioPageState extends State<InicioPage> {
   // retorna o documento de conclusão de hoje para um treino, ou null se não foi feito
   QueryDocumentSnapshot? _docConcluidoHoje(
       List<QueryDocumentSnapshot> concluidos, String treinoId) {
-    try {
-      return concluidos.firstWhere((doc) =>
-          (doc.data() as Map<String, dynamic>)['treinoId'] == treinoId);
-    } catch (_) {
-      return null;
+    // percorre a lista e retorna o primeiro que bater o treinoId, ou null
+    for (final doc in concluidos) {
+      if ((doc.data() as Map<String, dynamic>)['treinoId'] == treinoId) {
+        return doc;
+      }
     }
+    return null;
   }
 
   // marca treino como concluído — cria documento no Firestore
@@ -283,8 +284,6 @@ class _InicioPageState extends State<InicioPage> {
     final data = doc.data() as Map<String, dynamic>;
     final nomeTreino = data['nome'] ?? 'Treino';
     final exercicios = (data['exercicios'] as List?)?.length ?? 0;
-
-    // documento de conclusão de hoje — null significa não feito ainda
     final docConcluido = _docConcluidoHoje(concluidos, doc.id);
     final feito = docConcluido != null;
 
@@ -307,7 +306,6 @@ class _InicioPageState extends State<InicioPage> {
         ),
         child: Row(
           children: [
-            // ícone do treino
             Container(
               padding: const EdgeInsets.all(8),
               decoration: const BoxDecoration(
@@ -315,8 +313,6 @@ class _InicioPageState extends State<InicioPage> {
               child: const Icon(Icons.flash_on, color: accent, size: 20),
             ),
             const SizedBox(width: 14),
-
-            // nome e quantidade de exercícios
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -332,7 +328,6 @@ class _InicioPageState extends State<InicioPage> {
                 ],
               ),
             ),
-
             // check — toca para marcar ou desmarcar
             GestureDetector(
               onTap: feito
@@ -344,9 +339,7 @@ class _InicioPageState extends State<InicioPage> {
                   color: feito ? accent : Colors.transparent,
                   shape: BoxShape.circle,
                   border: Border.all(
-                    color: feito ? accent : Colors.grey,
-                    width: 2,
-                  ),
+                    color: feito ? accent : Colors.grey, width: 2),
                 ),
                 child: feito
                     ? const Icon(Icons.check, size: 18, color: Colors.black)

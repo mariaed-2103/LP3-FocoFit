@@ -54,19 +54,16 @@ class _ProgressoPageState extends State<ProgressoPage> {
   void _mudarMes(int delta) =>
       setState(() => _mesAtual = DateTime(_mesAtual.year, _mesAtual.month + delta));
 
-  // gera a lista de dias do mês com nulls no início para alinhar ao dia da semana
   List<DateTime?> get _diasDoCalendario {
     final primeiroDia = DateTime(_mesAtual.year, _mesAtual.month, 1);
     final totalDias = DateTime(_mesAtual.year, _mesAtual.month + 1, 0).day;
-    final offset = primeiroDia.weekday % 7; // Dom=0, Seg=1 ... Sáb=6
-
+    final offset = primeiroDia.weekday % 7;
     return [
       for (int i = 0; i < offset; i++) null,
       for (int i = 1; i <= totalDias; i++) DateTime(_mesAtual.year, _mesAtual.month, i),
     ];
   }
 
-  // conta treinos por dia a partir dos documentos do Firestore
   Map<String, int> _contarTreinosPorDia(List<QueryDocumentSnapshot> docs) {
     final mapa = <String, int>{};
     for (final doc in docs) {
@@ -77,16 +74,79 @@ class _ProgressoPageState extends State<ProgressoPage> {
     return mapa;
   }
 
-  // ── UI reutilizável ───────────────────────────────────────────────────────
+  // retorna os nomes dos treinos de um dia específico
+  List<String> _nomesDoDia(List<QueryDocumentSnapshot> docs, DateTime dia) {
+    final nomes = <String>[];
+    for (final doc in docs) {
+      final campos = doc.data() as Map<String, dynamic>;
+      final data = (campos['data'] as Timestamp).toDate();
+      if (data.year == dia.year && data.month == dia.month && data.day == dia.day) {
+        nomes.add(campos['nomeTreino'] as String? ?? 'Treino');
+      }
+    }
+    return nomes;
+  }
 
-  // card com fundo escuro padrão da tela
-  Widget _card({required Widget child, EdgeInsets? padding}) {
-    return Container(
-      padding: padding ?? const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: bgCard,
-        borderRadius: BorderRadius.circular(16),
+  // pop-up com os treinos do dia clicado
+  void _mostrarTreinosDoDia(DateTime dia, List<String> nomes) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: bgCard,
+        title: Text('${dia.day} de ${meses[dia.month - 1]}',
+          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        content: nomes.isEmpty
+            ? const Text('Nenhum treino registrado neste dia.',
+                style: TextStyle(color: Colors.grey, fontSize: 14))
+            : Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Treinos concluídos:',
+                    style: TextStyle(color: Colors.grey, fontSize: 13)),
+                  const SizedBox(height: 10),
+                  for (final nome in nomes)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 24, height: 24,
+                            decoration: BoxDecoration(
+                              color: accent, borderRadius: BorderRadius.circular(6)),
+                            child: const Icon(Icons.check, size: 14, color: Colors.black),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(nome,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 15,
+                              )),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Fechar',
+              style: TextStyle(color: accent, fontWeight: FontWeight.bold)),
+          ),
+        ],
       ),
+    );
+  }
+
+  // card com fundo escuro padrão
+  Widget _card({required Widget child}) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: bgCard, borderRadius: BorderRadius.circular(16)),
       child: child,
     );
   }
@@ -140,7 +200,7 @@ class _ProgressoPageState extends State<ProgressoPage> {
             padding: const EdgeInsets.all(16),
             child: Column(
               children: [
-                _card(child: _calendarioCompleto(treinosPorDia)),
+                _card(child: _calendarioCompleto(treinosPorDia, docs)),
                 const SizedBox(height: 16),
                 _card(child: _cardTotalMes(docs.length)),
               ],
@@ -153,14 +213,15 @@ class _ProgressoPageState extends State<ProgressoPage> {
 
   // ── Calendário ────────────────────────────────────────────────────────────
 
-  Widget _calendarioCompleto(Map<String, int> treinosPorDia) {
+  Widget _calendarioCompleto(
+      Map<String, int> treinosPorDia, List<QueryDocumentSnapshot> docs) {
     return Column(
       children: [
         _navegacaoMes(),
         const SizedBox(height: 8),
         _cabecalhoSemana(),
         const SizedBox(height: 8),
-        _gridDias(treinosPorDia),
+        _gridDias(treinosPorDia, docs),
       ],
     );
   }
@@ -200,15 +261,13 @@ class _ProgressoPageState extends State<ProgressoPage> {
     );
   }
 
-  Widget _gridDias(Map<String, int> treinosPorDia) {
+  Widget _gridDias(Map<String, int> treinosPorDia, List<QueryDocumentSnapshot> docs) {
     final dias = _diasDoCalendario;
     return GridView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 7,
-        mainAxisSpacing: 4,
-        childAspectRatio: 1,
+        crossAxisCount: 7, mainAxisSpacing: 4, childAspectRatio: 1,
       ),
       itemCount: dias.length,
       itemBuilder: (context, i) {
@@ -219,29 +278,30 @@ class _ProgressoPageState extends State<ProgressoPage> {
         final quantidade = treinosPorDia[chave] ?? 0;
         final marcado = quantidade > 0;
 
-        return Container(
-          margin: const EdgeInsets.all(2),
-          decoration: marcado
-              ? BoxDecoration(
-                  color: accent,
-                  borderRadius: BorderRadius.circular(10))
-              : null,
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text('${dia.day}',
-                style: TextStyle(
-                  color: marcado ? Colors.black : Colors.white,
-                  fontSize: 12,
-                  fontWeight: marcado ? FontWeight.bold : FontWeight.normal,
-                )),
-              if (quantidade == 1)
-                const Icon(Icons.check, size: 11, color: Colors.black),
-              if (quantidade > 1)
-                Text('${quantidade}x',
-                  style: const TextStyle(
-                    color: Colors.black, fontSize: 10, fontWeight: FontWeight.bold)),
-            ],
+        return GestureDetector(
+          onTap: () => _mostrarTreinosDoDia(dia, _nomesDoDia(docs, dia)),
+          child: Container(
+            margin: const EdgeInsets.all(2),
+            decoration: marcado
+                ? BoxDecoration(color: accent, borderRadius: BorderRadius.circular(10))
+                : null,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text('${dia.day}',
+                  style: TextStyle(
+                    color: marcado ? Colors.black : Colors.white,
+                    fontSize: 12,
+                    fontWeight: marcado ? FontWeight.bold : FontWeight.normal,
+                  )),
+                if (quantidade == 1)
+                  const Icon(Icons.check, size: 11, color: Colors.black),
+                if (quantidade > 1)
+                  Text('${quantidade}x',
+                    style: const TextStyle(
+                      color: Colors.black, fontSize: 10, fontWeight: FontWeight.bold)),
+              ],
+            ),
           ),
         );
       },
