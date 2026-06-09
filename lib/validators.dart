@@ -10,3 +10,17 @@ String? validarRegistro(String nome, String email, String senha) {
   if (senha.length < 6) return 'A senha deve ter pelo menos 6 caracteres.';
   return null;
 }
+
+String? validarExercicios(String series, String reps) {
+  final numSeries = int.tryParse(series);
+  if (numSeries == null || numSeries <= 0) {
+    return 'As séries devem ser um número válido maior que 0.';
+  }
+
+  final numReps = int.tryParse(reps);
+  if (numReps == null || numReps <= 0) {
+    return 'As repetições devem ser um número válido maior que 0.';
+  }
+
+  return null;
+}

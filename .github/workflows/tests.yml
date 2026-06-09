@@ -1,18 +1,34 @@
-name: Flutter Tests
+name: CI Flutter Pipeline
 
 on:
   push:
-    branches: [main]
+    branches: [ main, master ]
   pull_request:
-    branches: [main]
+    branches: [ main, master ]
 
 jobs:
   test:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v3
-      - uses: subosito/flutter-action@v2
+      - uses: actions/checkout@v4
+
+      - name: Setup Java JDK
+        uses: actions/setup-java@v4
         with:
-          flutter-version: '3.x'
-      - run: flutter pub get
-      - run: flutter test --coverage
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
+      - name: Install Dependencies
+        run: flutter pub get
+
+      - name: Run Analytical Linter
+        run: flutter analyze
+
+      - name: Run Quality Test Suite (with Coverage)
+        run: flutter test --coverage
