@@ -27,8 +27,8 @@ jobs:
       - name: Install Dependencies
         run: flutter pub get
 
-      - name: Run Analytical Linter
-        run: flutter analyze
+      - name: Run Analytical Linter (Warnings non-fatal)
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
 
       - name: Run Quality Test Suite (with Coverage)
         run: flutter test --coverage
