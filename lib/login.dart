@@ -37,7 +37,7 @@ class _LoginPageState extends State<LoginPage> {
                   borderRadius: BorderRadius.circular(15),
                   borderSide: BorderSide.none,
                 ),
-                labelText: "E-mail",
+                labelText: "E-mailssss",
                 labelStyle: TextStyle(color: Colors.grey[400]),
                 prefixIcon: Icon(Icons.email_outlined, color: const Color(0xFFCCFF00)),
               ),
